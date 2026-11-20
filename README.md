@@ -1,13 +1,25 @@
 # waste-disposal-fee-liability
 
-Core delivery C# ASP.NET backend template.
+FSS (Fee Support Service) billing and organisation details API, ported from the Azure-based
+`epr-calculator-fss-api` onto DEFRA's CDP (Core Delivery Platform, AWS-based) C# ASP.NET backend
+template.
 
-* [Install MongoDB](#install-mongodb)
-* [Inspect MongoDB](#inspect-mongodb)
+* [Known gaps from the Azure migration](#known-gaps-from-the-azure-migration)
+* [Docker Compose](#docker-compose)
 * [Testing](#testing)
 * [Running](#running)
 * [Dependabot](#dependabot)
 
+### Known gaps from the Azure migration
+
+A few Azure-specific pieces had no AWS/CDP equivalent available at the time of porting, and are
+deliberately stubbed rather than silently dropped:
+
+- **Calculator API authentication** (`Billing/Clients/EprCalculatorApiClient.cs`) - the original
+  attached an Entra ID bearer token acquired via Azure Managed Identity. That mechanism doesn't
+  exist on AWS, and no replacement (IAM-based service auth, mTLS, etc) has been decided - calls to
+  calculator-api currently carry no authentication at all. Revisit once calculator-api's own CDP
+  migration settles on an inter-service auth story.
 
 ### Docker Compose
 
@@ -15,11 +27,8 @@ A Docker Compose template is in [compose.yml](compose.yml).
 
 A local environment with:
 
-- Localstack for AWS services (S3, SQS)
-- Redis
-- MongoDB
+- floci (a Localstack alternative) emulating AWS services (S3, SQS) for local development.
 - This service.
-- A commented out frontend example.
 
 ```bash
 docker compose up --build -d
@@ -27,57 +36,20 @@ docker compose up --build -d
 
 A more extensive setup is available in [github.com/DEFRA/cdp-local-environment](https://github.com/DEFRA/cdp-local-environment)
 
-### MongoDB
-
-#### MongoDB via Docker
-
-See above.
-
-```
-docker compose up -d mongodb
-```
-
-#### MongoDB locally
-
-Alternatively install MongoDB locally:
-
-- Install [MongoDB](https://www.mongodb.com/docs/manual/tutorial/#installation) on your local machine
-- Start MongoDB:
-```bash
-sudo mongod --dbpath ~/mongodb-cdp
-```
-
-#### MongoDB in CDP environments
-
-In CDP environments a MongoDB instance is already set up
-and the credentials exposed as enviromment variables.
-
-
-### Inspect MongoDB
-
-To inspect the Database and Collections locally:
-```bash
-mongosh
-```
-
-You can use the CDP Terminal to access the environments' MongoDB.
-
 ### Testing
 
-Run the tests with:
-
-Tests run by running a full `WebApplication` backed by [Ephemeral MongoDB](https://github.com/asimmon/ephemeral-mongo).
-Tests do not use mocking of any sort and read and write from the in-memory database.
+Tests run a full `WebApplication` via `WebApplicationFactory<Program>`, with external
+dependencies (`IEprCalculatorApiClient`, `IEprCommonDataApiClient`)
+substituted using NSubstitute - there's no external datastore to stand up for tests.
 
 ```bash
 dotnet test
-````
+```
 
 ### Running
 
-Run CDP-Deployments application:
 ```bash
-dotnet run --project WasteDisposalFeeLiability --launch-profile Development
+dotnet run --project WasteDisposalFeeLiability --launch-profile WasteDisposalFeeLiability
 ```
 
 ### SonarCloud

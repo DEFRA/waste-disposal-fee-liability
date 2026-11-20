@@ -1,14 +1,15 @@
-using WasteDisposalFeeLiability.Example.Endpoints;
-using WasteDisposalFeeLiability.Example.Services;
-using WasteDisposalFeeLiability.Config;
+using WasteDisposalFeeLiability.Billing.Clients;
+using WasteDisposalFeeLiability.Billing.Config;
+using WasteDisposalFeeLiability.Billing.Endpoints;
+using WasteDisposalFeeLiability.Billing.Services;
+using WasteDisposalFeeLiability.Organisations.Clients;
+using WasteDisposalFeeLiability.Organisations.Config;
+using WasteDisposalFeeLiability.Organisations.Endpoints;
 using WasteDisposalFeeLiability.Utils;
 using WasteDisposalFeeLiability.Utils.Http;
-using WasteDisposalFeeLiability.Utils.Mongo;
+using WasteDisposalFeeLiability.Utils.HealthChecks;
 using System.Diagnostics.CodeAnalysis;
 using WasteDisposalFeeLiability.Utils.Logging;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using MongoDB.Driver;
-using MongoDB.Driver.Authentication.AWS;
 using Serilog;
 
 var app = BuildApp(args);
@@ -52,12 +53,10 @@ static void ConfigureServices(WebApplicationBuilder builder)
 
     ConfigureHeaderPropagation(services, configuration);
     ConfigureHttpClients(services);
-    ConfigureMongo(services, configuration);
+    ConfigureBilling(services, configuration);
+    ConfigureOrganisations(services, configuration);
 
     services.AddHealthChecks();
-
-    // App services
-    services.AddSingleton<IExamplePersistence, ExamplePersistence>();
 }
 
 [ExcludeFromCodeCoverage]
@@ -79,24 +78,37 @@ static void ConfigureHttpClients(IServiceCollection services)
 {
     services.AddTransient<ProxyHttpMessageHandler>();
 
-    // services.AddHttpClientWithTracing<IExampleClient, ExampleClient>();
-    // services.AddHttpClientWithProxy<IExternalClient, ExternalClient>();
+    // NOTE: these calls carry no authentication for now. The original Azure implementation attached
+    // an Entra ID bearer token acquired via Managed Identity - that mechanism doesn't exist on AWS/CDP,
+    // and no replacement (IAM-based service-to-service auth, mTLS, etc) has been decided yet. Revisit
+    // once calculator-api's own CDP migration settles on an inter-service auth story.
+    services.AddHttpClientWithTracing<IEprCalculatorApiClient, EprCalculatorApiClient>();
+    services.AddHttpClientWithTracing<IEprCommonDataApiClient, EprCommonDataApiClient>();
 }
 
 [ExcludeFromCodeCoverage]
-static void ConfigureMongo(IServiceCollection services, IConfiguration configuration)
+static void ConfigureBilling(IServiceCollection services, IConfiguration configuration)
 {
-
-    MongoExtensions.Register();
-    MongoConventions.Register();
-
     services
-        .AddOptions<MongoConfig>()
-        .Bind(configuration.GetRequiredSection("Mongo"))
+        .AddOptions<EprCalculatorApiSettings>()
+        .Bind(configuration.GetRequiredSection(EprCalculatorApiSettings.SectionName))
         .ValidateDataAnnotations()
         .ValidateOnStart();
 
-    services.AddSingleton<IMongoDbClientFactory, MongoDbClientFactory>();
+    services.AddHostedService(serviceProvider => new CalculatorApiStartupProbe(
+        serviceProvider.GetRequiredService<IEprCalculatorApiClient>(),
+        serviceProvider.GetRequiredService<ILogger<CalculatorApiStartupProbe>>(),
+        TimeSpan.FromSeconds(60)));
+}
+
+[ExcludeFromCodeCoverage]
+static void ConfigureOrganisations(IServiceCollection services, IConfiguration configuration)
+{
+    services
+        .AddOptions<EprCommonDataApiSettings>()
+        .Bind(configuration.GetRequiredSection(EprCommonDataApiSettings.SectionName))
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
 }
 
 [ExcludeFromCodeCoverage]
@@ -110,8 +122,8 @@ static void ConfigureMiddleware(WebApplication app)
 [ExcludeFromCodeCoverage]
 static void ConfigureEndpoints(WebApplication app)
 {
-    app.MapHealthChecks("/health", new HealthCheckOptions());
+    app.MapHealthChecks("/health", HealthCheckOptionsBuilder.Build());
 
-    // Remove before deploying
-    app.MapExampleEndpoints();
+    app.MapBillingEndpoints();
+    app.MapOrganisationsEndpoints();
 }

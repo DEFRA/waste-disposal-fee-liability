@@ -1,0 +1,14 @@
+namespace WasteDisposalFeeLiability.Organisations.Models;
+
+public record SubsidiaryDetails
+{
+    public required string SubsidiaryId { get; init; }
+
+    public required string? SubsidiaryName { get; init; }
+
+    public required string? SubsidiaryTradingName { get; init; }
+
+    public required string FinancialYear { get; init; }
+
+    public required DateTime ApprovedDate { get; init; }
+}
