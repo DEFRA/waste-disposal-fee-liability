@@ -58,8 +58,10 @@ Example SonarCloud configuration are available in the GitHub Action workflows.
 
 ### Dependabot
 
-We have added an example dependabot configuration file to the repository. You can enable it by renaming
-the [.github/example.dependabot.yml](.github/example.dependabot.yml) to `.github/dependabot.yml`
+[.github/dependabot.yml](.github/dependabot.yml) checks NuGet packages and GitHub Actions weekly.
+Minor and patch updates are grouped into a single PR; major updates get their own PR, except
+`Microsoft.AspNetCore.*` majors, which are ignored because they're upgraded alongside the .NET target
+framework.
 
 
 ### About the licence
