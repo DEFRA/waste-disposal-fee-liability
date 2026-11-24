@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.HeaderPropagation;
+using Microsoft.Extensions.Primitives;
 using WasteDisposalFeeLiability.Billing.Clients;
 
 namespace WasteDisposalFeeLiability.Billing.Services;
@@ -9,11 +11,13 @@ namespace WasteDisposalFeeLiability.Billing.Services;
 /// <param name="eprCalculatorApiClient">The client used to call the EPR Calculator API.</param>
 /// <param name="logger">The logger to record the check's result on.</param>
 /// <param name="startupDelay">The delay before performing the startup check.</param>
+/// <param name="headerPropagationValues">The headers the HTTP client passes on from the current request.</param>
 #pragma warning disable CA1848 // Use the LoggerMessage delegates
 public class CalculatorApiStartupProbe(
     IEprCalculatorApiClient eprCalculatorApiClient,
     ILogger<CalculatorApiStartupProbe> logger,
-    TimeSpan startupDelay)
+    TimeSpan startupDelay,
+    HeaderPropagationValues headerPropagationValues)
     : BackgroundService
 {
     private const int ProbeRunId = -1;
@@ -27,6 +31,10 @@ public class CalculatorApiStartupProbe(
 
     public async Task ProbeAsync(CancellationToken cancellationToken)
     {
+        // The probe runs outside any HTTP request, so there are no headers to propagate. Without this,
+        // the client's header propagation handler throws. It's async-local, so only affects this call.
+        headerPropagationValues.Headers ??= new Dictionary<string, StringValues>(StringComparer.OrdinalIgnoreCase);
+
         try
         {
             var result = await eprCalculatorApiClient.DownloadBillingFile(ProbeRunId, cancellationToken);

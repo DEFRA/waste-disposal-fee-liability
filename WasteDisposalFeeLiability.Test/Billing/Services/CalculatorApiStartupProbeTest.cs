@@ -1,7 +1,11 @@
+using System.Net;
+using Microsoft.AspNetCore.HeaderPropagation;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WasteDisposalFeeLiability.Billing.Clients;
+using WasteDisposalFeeLiability.Billing.Config;
 using WasteDisposalFeeLiability.Billing.Services;
 
 namespace WasteDisposalFeeLiability.Test.Billing.Services;
@@ -14,7 +18,42 @@ public class CalculatorApiStartupProbeTest
 
     public CalculatorApiStartupProbeTest()
     {
-        probe = new CalculatorApiStartupProbe(mockEprCalculatorApiClient, fakeLogger, TimeSpan.FromSeconds(1));
+        probe = new CalculatorApiStartupProbe(
+            mockEprCalculatorApiClient, fakeLogger, TimeSpan.FromSeconds(1), new HeaderPropagationValues());
+    }
+
+    [Fact]
+    public async Task ProbeAsync_ReachesCalculatorApiThroughHeaderPropagationOutsideAnHttpRequest()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var requestSent = false;
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHttpContextAccessor();
+        services.Configure<EprCalculatorApiSettings>(settings => settings.BaseUrl = "https://calculator-api.test");
+        services.AddHeaderPropagation(options => options.Headers.Add("x-cdp-request-id"));
+        services
+            .AddHttpClient<IEprCalculatorApiClient, EprCalculatorApiClient>()
+            .AddHeaderPropagation()
+            .ConfigurePrimaryHttpMessageHandler(() => new StubHandler(() =>
+            {
+                requestSent = true;
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }));
+        await using var serviceProvider = services.BuildServiceProvider();
+
+        var realClientProbe = new CalculatorApiStartupProbe(
+            serviceProvider.GetRequiredService<IEprCalculatorApiClient>(),
+            fakeLogger,
+            TimeSpan.Zero,
+            serviceProvider.GetRequiredService<HeaderPropagationValues>());
+
+        await realClientProbe.ProbeAsync(cancellationToken);
+
+        Assert.True(requestSent);
+        var message = Assert.Single(fakeLogger.LoggedMessages);
+        Assert.Contains("correctly reported no billing file", message);
     }
 
     [Fact]
@@ -90,9 +129,17 @@ public class CalculatorApiStartupProbeTest
         await mockEprCalculatorApiClient.Received(1).DownloadBillingFile(-1, cancellationTokenSource.Token);
     }
 
+    private sealed class StubHandler(Func<HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(respond());
+    }
+
     private sealed class FakeLogger<T> : ILogger<T>
     {
         public List<LogLevel> LoggedLevels { get; } = [];
+
+        public List<string> LoggedMessages { get; } = [];
 
         public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
 
@@ -106,6 +153,7 @@ public class CalculatorApiStartupProbeTest
             Func<TState, Exception?, string> formatter)
         {
             LoggedLevels.Add(logLevel);
+            LoggedMessages.Add(formatter(state, exception));
         }
 
         private sealed class NullScope : IDisposable

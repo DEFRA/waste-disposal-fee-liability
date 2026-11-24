@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HeaderPropagation;
 using WasteDisposalFeeLiability.Billing.Clients;
 using WasteDisposalFeeLiability.Billing.Config;
 using WasteDisposalFeeLiability.Billing.Endpoints;
@@ -98,7 +99,8 @@ static void ConfigureBilling(IServiceCollection services, IConfiguration configu
     services.AddHostedService(serviceProvider => new CalculatorApiStartupProbe(
         serviceProvider.GetRequiredService<IEprCalculatorApiClient>(),
         serviceProvider.GetRequiredService<ILogger<CalculatorApiStartupProbe>>(),
-        TimeSpan.FromSeconds(60)));
+        TimeSpan.FromSeconds(60),
+        serviceProvider.GetRequiredService<HeaderPropagationValues>()));
 }
 
 [ExcludeFromCodeCoverage]
